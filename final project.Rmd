@@ -1,0 +1,359 @@
+---
+title: "Final Project"
+author: 'null'
+output: word_document
+---
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+First step is to creat SQLlite database
+```{r,warning=FALSE,message=FALSE}
+library(nycflights13) 
+library(dplyr)
+library(ggplot2)
+sasha_z <- src_sqlite("sasha_z.sqlite1", create = T)
+
+flights_sqlite <- copy_to(
+  sasha_z, flights, temporary = FALSE, 
+  indexes = list(
+    c("year", "month", "day"), 
+    "carrier", 
+    "tailnum")
+)
+
+airlines_sqlite <- copy_to(
+  sasha_z, airlines, temporary = FALSE, 
+  indexes = list("carrier")
+)
+
+airports_sqlite <- copy_to(
+  sasha_z, airports, temporary = FALSE, 
+  indexes = list("faa")
+)
+
+planes_sqlite <- copy_to(
+  sasha_z, planes, temporary = FALSE, 
+  indexes = list("tailnum")
+)
+
+weather_sqlite <- copy_to(
+  sasha_z, weather, temporary = FALSE, 
+  indexes = list(
+    c("year", "month","day","hour"),
+    "origin")
+)
+
+nycflights13_sqlite()
+sasha_z
+
+flights_sqlite <- tbl(sasha_z, "flights")
+flights_sqlite
+```
+
+part A
+1.analyze the relationship between weather and departure by using liner model regression.
+
+```{r,warning=FALSE,message=FALSE}
+flights_weather_join <- left_join(
+  tbl(sasha_z, "flights"),
+  tbl(sasha_z, "weather"),
+  by = "origin")
+
+View(flights_weather_join)
+
+lm_delay_temp<-lm(dep_delay~temp,flights_weather_join)
+summary(lm_delay_temp)
+
+lm_delay_dewp<-lm(dep_delay~dewp,flights_weather_join)
+summary(lm_delay_dewp)
+
+lm_delay_humid<-lm(dep_delay~humid,flights_weather_join)
+summary(lm_delay_humid)
+
+lm_delay_winddir<-lm(dep_delay~wind_dir,flights_weather_join)
+summary(lm_delay_winddir)
+
+lm_delay_windspeed<-lm(dep_delay~wind_speed,flights_weather_join)
+summary(lm_delay_windspeed)
+
+lm_delay_windgust<-lm(dep_delay~wind_gust,flights_weather_join)
+summary(lm_delay_windgust)
+
+lm_delay_pressure<-lm(dep_delay~pressure,flights_weather_join)
+summary(lm_delay_pressure)
+```
+
+The coefficients of first two regression are significant, the coefficients of the other regression are all not significant. Which indicates the temperature and dewpoint can explain the changing in departure better.
+
+```{r,warning=FALSE,message=FALSE}
+flights_weather_join<- data.frame(flights_weather_join)
+a<-ggplot(flights_weather_join,aes(x=temp,y=dep_delay))
+a + geom_violin()
+
+b<-ggplot(flights_weather_join,aes(x=dewp,y=dep_delay))
+b+ geom_violin()
+```
+
+2.analyse the relationship between departureand time of day, day of week, time of year
+```{r,warning=FALSE,message=FALSE}
+flights.delaysum.sql_year <- tbl(sasha_z, "flights") %>%
+  group_by(year) %>%
+  summarize(
+    delaymean = mean(dep_delay)   
+  ) %>% collect()
+
+flights.delaysum.sql_year
+
+flights.delaysum.sql_month <- tbl(sasha_z, "flights") %>%
+  group_by(month) %>%
+  summarize(
+    delaymean = mean(dep_delay)   
+  )%>%collect()
+
+flights.delaysum.sql_month <-data.frame(flights.delaysum.sql_month)
+
+c <- ggplot(flights.delaysum.sql_month, aes(x= factor(month),y=delaymean)) + geom_bar(stat="identity", fill = "blue")
+c
+```
+
+It easy to find that June and July get the highest dep_delay.
+May get the lowest dep_delay.
+
+```{r,warning=FALSE,message=FALSE}
+flights.delaysum.sql_day <- tbl(sasha_z, "flights") %>%
+  group_by(day) %>%
+  summarize(
+    delaymean = mean(dep_delay)   
+  )%>%collect()
+
+order_flights.delaysum.sql_day<-arrange(flights.delaysum.sql_day,delaymean)
+View(order_flights.delaysum.sql_day)
+
+flights.delaysum.sql_day <-data.frame(flights.delaysum.sql_day)
+summary(flights.delaysum.sql_day)
+
+d <- ggplot(flights.delaysum.sql_day, aes(x= factor(day),y=delaymean)) + geom_density()
+d
+```
+
+I can tell that 4th in a month got the lowest dep_delay 5.789,and 8th in a month got the highest dep_delay 21.96.
+
+3.3.analyze between the departure and destination.
+```{r,warning=FALSE,message=FALSE}
+flights_airports_join <- left_join(
+  tbl(sasha_z, "flights"),
+  tbl(sasha_z, "airports"),
+  by = c("dest"="faa"))
+
+View(flights_airports_join)
+
+flights_airports_join<-data.frame(flights_airports_join)
+flights.airports_delay <- flights_airports_join %>%
+  group_by(faa) %>%
+  summarize(
+    delaymean = mean(dep_delay,na.rm = T)    
+  ) 
+
+order_flights.airports_delay<-arrange(flights.airports_delay,delaymean)
+View(order_flights.airports_delay)
+
+e <- ggplot(flights.airports_delay, aes(x= factor(faa),y=delaymean,colour = faa)) + geom_density()
+e
+```
+LEX got the lowest departure delay -9,which means planes even arrive early in these two airports.
+SBN got the highest departure delay 49.
+
+4.analyze the departure with plane
+Firstly, analyze the manufacturer
+```{r,warning=FALSE,message=FALSE}
+flights_planes_join <- left_join(
+  tbl(sasha_z, "flights"),
+  tbl(sasha_z, "planes"),
+  by = "tailnum")
+
+flights_planes_join_1<-data.frame(flights_planes_join)
+flights_planes_manufacturer_delay <- flights_planes_join_1 %>%
+  group_by(manufacturer) %>%
+  summarize(
+    delaymean = mean(dep_delay,na.rm = T)    
+  ) 
+
+order_planes_manufacturer_delay<-arrange(flights_planes_manufacturer_delay,delaymean)
+View(order_planes_manufacturer_delay)
+
+f <- ggplot(flights_planes_manufacturer_delay, aes(x= factor(manufacturer),y=delaymean)) + geom_bar(stat="identity", fill = "blue")+ theme(axis.text.x=element_text(angle = 90))
+f
+```
+HURLEY JAMES LARRY related to the lowest departure delay -6.5.
+AGUSTA SPA related to the highest departure delay 29.6923.
+
+Secondly,analyze departure and year
+```{r,warning=FALSE,message=FALSE}
+plane_delay<-na.omit(flights_planes_join)
+glm_plane_delay_year<-glm(dep_delay~year.y,plane_delay,family=gaussian)
+summary(glm_plane_delay_year)
+
+glm_plane_delay_engines<-glm(dep_delay~engines,plane_delay,family=gaussian)
+summary(glm_plane_delay_engines)
+
+```
+the coefficient before year,y is 0.07674, significant on 99%.
+the coefficient I got is 2.009, but not significant.
+
+Thirdly, analyze engines and departure.
+```{r,warning=FALSE,message=FALSE}
+flights_planes_engines_delay <- flights_planes_join_1 %>%
+  group_by(engines) %>%
+  summarize(
+    delaymean = mean(dep_delay,na.rm = T)    
+  ) 
+
+order_planes_engines_delay<-arrange(flights_planes_engines_delay,delaymean)
+View(order_planes_engines_delay)
+```
+The planes with 1 engine depature delay is the lowest.
+The planes with 2 engines depature delay is the highest.
+
+Forth, analyze engine and departure.
+```{r,warning=FALSE,message=FALSE}
+flights_planes_engine_delay <- flights_planes_join_1 %>%
+  group_by(engine) %>%
+  summarize(
+    delaymean = mean(dep_delay,na.rm = T)    
+  ) 
+g <- ggplot(flights_planes_engine_delay, aes(x= factor(engine),y=delaymean,fill = engine)) + geom_bar(stat="identity")+ theme(axis.text.x=element_text(angle = 90))
+g
+```
+The planes with 4 cycle engine delay depature is the highest.
+The planes with reciprocating engine delay depature is the lowest.
+
+At last, analyse the departure and type of plane.
+```{r,warning=FALSE,message=FALSE}
+flights_planes_type_delay <- flights_planes_join_1 %>%
+  group_by(type) %>%
+  summarize(
+    delaymean = mean(dep_delay,na.rm = T)    
+  ) 
+g <- ggplot(flights_planes_type_delay, aes(x= factor(type),y=delaymean,fill = type)) + geom_bar(stat="identity")+ theme(axis.text.x=element_text(angle = 90))
+g
+```
+Fixed wing multi engine has the highest depature rate.
+Fixed wing single engine has the lower depature rate.
+Rotorcraft has the lowest departure rate.
+
+part 2.cancelation with flights facets
+1.analyze the cancelled with weather
+```{r,warning=FALSE,message=FALSE}
+cancelled_flights_weather <- flights_sqlite %>% left_join(weather, by = "origin", copy = TRUE) %>% mutate(canceled = is.na(arr_time))
+View(cancelled_flights_weather)
+
+cancelled_flights_weather<-data.frame(cancelled_flights_weather)
+glm_cancelled_temp<- glm(canceled~temp,cancelled_flights_weather,family=binomial(link=logit))
+summary(glm_cancelled_temp)
+
+glm_cancelled_pressure<- glm(canceled~pressure,cancelled_flights_weather,family=binomial(link=logit))
+summary(glm_cancelled_pressure)
+
+glm_cancelled_windspeed<- glm(canceled~wind_speed,cancelled_flights_weather,family=binomial(link=logit))
+summary(glm_cancelled_windspeed)
+```
+All the coefficients are not significant, which means they should not be used to explain the chaning in cancellation.
+
+2.analyze the cancelled with time.
+```{r,warning=FALSE,message=FALSE}
+flights_canceled = tbl(sasha_z, "flights") %>% 
+  collect() %>%
+  mutate(canceled = is.na(arr_time))
+
+flights_canceled<-data.frame(flights_canceled)
+
+flights_canceled_month <- flights_canceled %>%
+  group_by(month) %>%
+  summarize(
+    canceled = sum(canceled)    
+  ) 
+View(flights_canceled_month)
+
+order_flights_canceled_month<-arrange(flights_canceled_month,canceled)
+View(order_flights_canceled_month)
+
+h <- ggplot(flights_canceled_month, aes(x= factor(month),y=canceled,fill = canceled)) + geom_bar(stat="identity")
+h
+```
+Oct has the least cancelation number 247, Feb has the most cancelation number 1291.
+
+```{r,warning=FALSE,message=FALSE}
+flights_canceled_day <- flights_canceled %>%
+  group_by(day) %>%
+  summarize(
+    canceled = sum(canceled)    
+  ) 
+View(flights_canceled_day)
+
+order_flights_canceled_day<-arrange(flights_canceled_day,canceled)
+View(order_flights_canceled_day)
+
+i <- ggplot(flights_canceled_day, aes(x= factor(day),y=canceled,fill = canceled)) + geom_bar(stat="identity")
+i
+```
+4th of a month has the least cancelation number 89 
+31th of a month has the most cancelation number 937
+
+3.analyze the canceled with destination
+```{r,warning=FALSE,message=FALSE}
+cancelled_flights_airports <- flights_sqlite %>% left_join(airports, by = c("dest"="faa"), copy = TRUE) %>% mutate(canceled = is.na(arr_time))
+View(cancelled_flights_airports)
+
+cancelled_flights_airports<-data.frame(cancelled_flights_airports)
+
+can_des <- cancelled_flights_airports %>%
+  group_by(faa) %>%
+  summarize(
+    canceled = sum(canceled,na.rm = T)    
+  ) 
+
+order_cancelled_flights_airports<-arrange(can_des,canceled)
+View(order_cancelled_flights_airports)
+```
+ABQ ACK BUR BZN CAK CRW EGE EYW HDN HNL JAC LEX LGB MTJ MVY OAK
+PSP SBN SJC SMF all just canceled 0 times.
+DCA has 129 cancelation,the highest.
+
+4.The relationship between calcellation and planes.
+```{r,warning=FALSE,message=FALSE}
+cancelled_flights_planes <- flights_sqlite %>% left_join(planes, by = "tailnum", copy = TRUE) %>% mutate(canceled = is.na(arr_time))
+View(cancelled_flights_planes)
+
+cancelled_flights_planes<-data.frame(cancelled_flights_planes)
+
+can_planes_year <- cancelled_flights_planes %>%
+  group_by(year.y) %>%
+  summarize(
+    canceled = sum(canceled,na.rm = T)    
+  ) 
+View(can_planes_year)
+
+order_can_planes_year<-arrange(can_planes_year,canceled)
+View(order_can_planes_year)
+
+can_planes_manufacturer <- cancelled_flights_planes %>%
+  group_by(manufacturer) %>%
+  summarize(
+    canceled = sum(canceled,na.rm = T)    
+  ) 
+View(can_planes_manufacturer)
+
+order_can_planes_manufacturer<-arrange(can_planes_manufacturer,canceled)
+View(order_can_planes_manufacturer)
+
+k <- ggplot(can_planes_manufacturer, aes(x= factor(manufacturer),y=canceled,fill = canceled)) + geom_bar(stat="identity")+ theme(axis.text.x=element_text(angle = 90))
+k
+```
+2002 has 181 cancalations,which is the highest.
+
+Embraer being cancelled for 600 times.But the second most just being cancelled for 157 times,maybe planes produced by Embraer easier to have problems.
+
+```{r}
+
+```
+
